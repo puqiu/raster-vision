@@ -15,27 +15,41 @@ SRC="${PROJECT_ROOT}/src"
 function usage() {
     echo -n \
          "Usage: $(basename "$0")
-Run raster-vision CPU image locally. Using --aws forwards AWS credentials.
-All arguments except --aws are passed to 'docker run'.
+Run raster-vision CPU image locally.
+--aws forwards AWS credentials.
+--tensorboard maps port 6006
+All arguments after above options are passed to 'docker run'.
 "
 }
 
+# Parse options using scheme in
+# https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+
+case $key in
+    --aws)
+    AWS="-e AWS_PROFILE=${AWS_PROFILE} -v ${HOME}/.aws:/root/.aws"
+    shift # past argument
+    ;;
+    --tensorboard)
+    TENSORBOARD="-p 6006:6006"
+    shift # past argument
+    ;;
+    *)    # unknown option
+    POSITIONAL+=("$1") # save it in an array for later
+    shift # past argument
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]
 then
-    if [ "${1:-}" = "--aws" ]
-    then
-        docker run --rm -it \
-            -e "AWS_PROFILE=$AWS_PROFILE" \
-            -v "$HOME/.aws":/root/.aws \
-            -p 6006:6006 \
-            -v "$SRC":/opt/src \
-            -v ${RASTER_VISION_DATA_DIR}:/opt/data \
-            raster-vision-cpu "${@:2}"
-    else
-        docker run --rm -it \
-            -p 6006:6006 \
-            -v "$SRC":/opt/src \
-            -v ${RASTER_VISION_DATA_DIR}:/opt/data \
-            raster-vision-cpu "${@:1}"
-    fi
+    docker run --rm -it ${TENSORBOARD} ${AWS} \
+        -v "$SRC":/opt/src \
+        -v ${RASTER_VISION_DATA_DIR}:/opt/data \
+        raster-vision-cpu "${@:1}"
 fi
