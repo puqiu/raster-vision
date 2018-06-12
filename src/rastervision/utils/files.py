@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from threading import Timer
 from urllib.parse import urlparse
+import urllib.request
 
 import boto3
 import botocore
@@ -44,6 +45,9 @@ def get_local_path(uri, temp_dir):
     elif parsed_uri.scheme == 's3':
         path = os.path.join(
             temp_dir, 's3', parsed_uri.netloc, parsed_uri.path[1:])
+    elif parsed_uri.scheme == 'http':
+        path = os.path.join(
+            temp_dir, 'http', parsed_uri.netloc, parsed_uri.path[1:])
 
     return path
 
@@ -75,8 +79,6 @@ def download_if_needed(uri, download_dir, must_exist=True):
 
     parsed_uri = urlparse(uri)
     if parsed_uri.scheme == 's3':
-
-        # is it a raster?
         vsis3_path = _is_raster(uri, s3_test=True)
         if vsis3_path:
             return vsis3_path
@@ -86,6 +88,12 @@ def download_if_needed(uri, download_dir, must_exist=True):
             s3 = boto3.client('s3')
             s3.download_file(parsed_uri.netloc, parsed_uri.path[1:], path)
         except botocore.exceptions.ClientError:
+            if must_exist:
+                raise NotFoundException('Could not find {}'.format(uri))
+    elif parsed_uri.scheme == 'http':
+        try:
+            urllib.request.urlretrieve(uri, path)
+        except urllib.error.HTTPError:
             if must_exist:
                 raise NotFoundException('Could not find {}'.format(uri))
     else:
