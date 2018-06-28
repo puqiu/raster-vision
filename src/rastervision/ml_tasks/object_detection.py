@@ -26,20 +26,22 @@ def _make_chip_pos_windows(image_extent, label_store, options):
     chip_size = options.chip_size
     pos_windows = []
     boxes = label_store.get_all_labels().get_boxes()
-    done_boxes = set()
+    included_boxes = set()
 
-    # Get a random window around each box. If a box was previously included
+    # Get random windows around each box. If a box was previously included
     # in a window, then it is skipped.
     for box in boxes:
-        if box.tuple_format() not in done_boxes:
-            window = box.make_random_square_container(chip_size)
-            pos_windows.append(window)
+        if (box.tuple_format() not in included_boxes or
+                options.object_detection_options.duplicates_ok):
+            for _ in range(options.object_detection_options.nb_random_crops):
+                window = box.make_random_square_container(chip_size)
+                pos_windows.append(window)
 
-            # Get boxes that lie completely within window
-            window_boxes = label_store.get_all_labels().get_overlapping(
-                window, min_ioa=1.0).get_boxes()
-            window_boxes = [box.tuple_format() for box in window_boxes]
-            done_boxes.update(window_boxes)
+                # Get boxes that lie completely within window
+                window_boxes = label_store.get_all_labels().get_overlapping(
+                    window, min_ioa=1.0).get_boxes()
+                window_boxes = [box.tuple_format() for box in window_boxes]
+                included_boxes.update(window_boxes)
 
     return pos_windows
 

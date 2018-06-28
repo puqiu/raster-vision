@@ -17,6 +17,17 @@ message MakeTrainingChipsConfig {
         required float neg_ratio = 1;
 
         /*
+            OK to create chips for objects that are already included in a
+            training chip.
+        */
+        required bool duplicates_ok = 5 [default=false];
+
+        /*
+            The number of random crops to create for each object.
+        */
+        required int32 nb_random_crops = 6 [default=1];
+
+        /*
             When a box is partially outside of a training chip, it is not
             clear if (a clipped version) of the box should be included in
             the chip. If the IOA (intersection over area) of the box with the
