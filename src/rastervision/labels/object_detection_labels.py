@@ -48,6 +48,14 @@ def inverse_change_coordinate_frame(boxlist, window):
 
 class ObjectDetectionLabels(Labels):
     def __init__(self, npboxes, class_ids, scores=None):
+        """Construct a set of object detection labels.
+
+        Args:
+            npboxes: float numpy array of size nx4 with cols
+                ymin, xmin, ymax, xmax
+            class_ids: int numpy array of size n with class ids starting at 1
+            scores: float numpy array of size n
+        """
         self.boxlist = BoxList(npboxes)
         # This field name actually needs to be 'classes' to be able to use
         # certain utility functions in the TF Object Detection API.
@@ -60,10 +68,11 @@ class ObjectDetectionLabels(Labels):
 
     @staticmethod
     def from_boxlist(boxlist):
+        """Make ObjectDetectionLabels from BoxList object."""
         scores = boxlist.get_field('scores') \
                  if boxlist.has_field('scores') else None
         return ObjectDetectionLabels(
-            boxlist.get(), boxlist.get_field('classes'), scores)
+            boxlist.get(), boxlist.get_field('classes'), scores=scores)
 
     @staticmethod
     def from_geojson(geojson, crs_transformer, extent):
@@ -72,9 +81,9 @@ class ObjectDetectionLabels(Labels):
     @staticmethod
     def make_empty():
         npboxes = np.empty((0, 4))
-        labels = np.empty((0,))
+        class_ids = np.empty((0,))
         scores = np.empty((0,))
-        return ObjectDetectionLabels(npboxes, labels, scores)
+        return ObjectDetectionLabels(npboxes, class_ids, scores)
 
     def get_subwindow(self, window, ioa_thresh=1.0):
         """Returns boxes relative to window.
