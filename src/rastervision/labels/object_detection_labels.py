@@ -10,8 +10,14 @@ from rastervision.core.labels import Labels
 from rastervision.labels.utils import boxes_to_geojson
 
 
-def geojson_to_labels(geojson, crs_transformer, extent):
-    """Extract boxes and related info from GeoJSON file."""
+def geojson_to_labels(geojson, crs_transformer):
+    """Convert GeoJSON to ObjectDetectionLabels object.
+
+    Args:
+        geojson: dict in GeoJSON format
+        crs_transformer: used to convert map coords in geojson to pixel coords
+            in labels object
+    """
     features = geojson['features']
     boxes = []
     class_ids = []
@@ -32,9 +38,7 @@ def geojson_to_labels(geojson, crs_transformer, extent):
     boxes = np.array([box.npbox_format() for box in boxes], dtype=float)
     class_ids = np.array(class_ids)
     scores = np.array(scores)
-    labels = ObjectDetectionLabels(boxes, class_ids, scores=scores)
-    labels = labels.get_overlapping(extent, min_ioa=0.8)
-    return labels
+    return ObjectDetectionLabels(boxes, class_ids, scores=scores)
 
 
 def inverse_change_coordinate_frame(boxlist, window):
@@ -75,8 +79,19 @@ class ObjectDetectionLabels(Labels):
             boxlist.get(), boxlist.get_field('classes'), scores=scores)
 
     @staticmethod
-    def from_geojson(geojson, crs_transformer, extent):
-        return geojson_to_labels(geojson, crs_transformer, extent)
+    def from_geojson(geojson, crs_transformer, extent=None):
+        labels = geojson_to_labels(geojson, crs_transformer)
+        if extent is not None:
+            labels = labels.get_overlapping(extent, min_ioa=0.8)
+        return labels
+
+    def to_geojson(self, crs_transformer, class_map):
+        boxes = self.get_boxes()
+        class_ids = self.get_class_ids().tolist()
+        scores = self.get_scores().tolist()
+
+        return boxes_to_geojson(boxes, class_ids, crs_transformer, class_map,
+                                scores=scores)
 
     @staticmethod
     def make_empty():
@@ -85,36 +100,8 @@ class ObjectDetectionLabels(Labels):
         scores = np.empty((0,))
         return ObjectDetectionLabels(npboxes, class_ids, scores)
 
-    def get_subwindow(self, window, ioa_thresh=1.0):
-        """Returns boxes relative to window.
-
-        This returns the boxes that overlap enough with window, clipped to
-        the window and in relative coordinates that lie between 0 and 1.
-        """
-        window_npbox = window.npbox_format()
-        window_boxlist = BoxList(np.expand_dims(window_npbox, axis=0))
-        boxlist = prune_non_overlapping_boxes(
-            self.boxlist, window_boxlist, minoverlap=ioa_thresh)
-        boxlist = clip_to_window(boxlist, window_npbox)
-        boxlist = change_coordinate_frame(boxlist, window_npbox)
-        return ObjectDetectionLabels.from_boxlist(boxlist)
-
     def get_boxes(self):
         return [Box.from_npbox(npbox) for npbox in self.boxlist.get()]
-
-    def get_overlapping(self, window, min_ioa=0.000001):
-        """Returns list of boxes that overlap with window.
-
-        Does not clip or perform coordinate transform.
-
-        Args:
-            min_ioa: the minimum ioa for a Box to be considered as overlapping
-        """
-        window_npbox = window.npbox_format()
-        window_boxlist = BoxList(np.expand_dims(window_npbox, axis=0))
-        boxlist = prune_non_overlapping_boxes(
-            self.boxlist, window_boxlist, minoverlap=min_ioa)
-        return ObjectDetectionLabels.from_boxlist(boxlist)
 
     def get_coordinates(self):
         return self.boxlist.get_coordinates()
@@ -135,6 +122,39 @@ class ObjectDetectionLabels(Labels):
 
     def __str__(self):
         return str(self.boxlist.get())
+
+    def get_subwindow(self, window, ioa_thresh=1.0):
+        """Returns boxes relative to window.
+
+        This returns the boxes that overlap enough with window, clipped to
+        the window and in relative coordinates that lie between 0 and 1.
+        A box overlaps enough if the IOA (box over window) exceeds ioa_thresh.
+
+        Args:
+            window: (Box)
+            ioa_thresh: (float 0-1) intersection over area threshold
+        """
+        window_npbox = window.npbox_format()
+        window_boxlist = BoxList(np.expand_dims(window_npbox, axis=0))
+        boxlist = prune_non_overlapping_boxes(
+            self.boxlist, window_boxlist, minoverlap=ioa_thresh)
+        boxlist = clip_to_window(boxlist, window_npbox)
+        boxlist = change_coordinate_frame(boxlist, window_npbox)
+        return ObjectDetectionLabels.from_boxlist(boxlist)
+
+    def get_overlapping(self, window, min_ioa=0.000001):
+        """Returns list of boxes that overlap with window.
+
+        Does not clip or perform coordinate transform.
+
+        Args:
+            min_ioa: the minimum ioa for a Box to be considered as overlapping
+        """
+        window_npbox = window.npbox_format()
+        window_boxlist = BoxList(np.expand_dims(window_npbox, axis=0))
+        boxlist = prune_non_overlapping_boxes(
+            self.boxlist, window_boxlist, minoverlap=min_ioa)
+        return ObjectDetectionLabels.from_boxlist(boxlist)
 
     def concatenate(self, window, labels):
         boxlist_new = concatenate([
@@ -169,11 +189,3 @@ class ObjectDetectionLabels(Labels):
         class_ids = pruned_boxlist.get_field('classes')
         class_ids += 1
         return ObjectDetectionLabels.from_boxlist(pruned_boxlist)
-
-    def to_geojson(self, crs_transformer, class_map):
-        boxes = self.get_boxes()
-        class_ids = self.get_class_ids().tolist()
-        scores = self.get_scores().tolist()
-
-        return boxes_to_geojson(boxes, class_ids, crs_transformer, class_map,
-                                scores=scores)
