@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
-import copy
 
 
 class LabelStore(ABC):
-    """A source of labels for a scene.
+    """The place where labels are stored for a scene.
 
     An LabelStore is a read/write source of labels for a scene
-    that could be backed by a file, a database, an API, etc.
+    that could be backed by a file, a database, an API, etc. The difference
+    between LabelStores and Labels can be understood by analogy to the
+    difference between a database and result sets queried from a database.
     """
-
     @abstractmethod
     def get_labels(self, window):
         """Get labels for a window.

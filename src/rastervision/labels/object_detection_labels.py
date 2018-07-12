@@ -3,7 +3,7 @@ import numpy as np
 from object_detection.utils.np_box_list import BoxList
 from object_detection.utils.np_box_list_ops import (
     prune_non_overlapping_boxes, clip_to_window, change_coordinate_frame,
-    concatenate, scale, multi_class_non_max_suppression, _copy_extra_fields)
+    concatenate, scale, non_max_suppression, _copy_extra_fields)
 
 from rastervision.core.box import Box
 from rastervision.core.labels import Labels
@@ -56,7 +56,7 @@ class ObjectDetectionLabels(Labels):
 
         Args:
             npboxes: float numpy array of size nx4 with cols
-                ymin, xmin, ymax, xmax
+                ymin, xmin, ymax, xmax. Should be in pixel coordinates.
             class_ids: int numpy array of size n with class ids starting at 1
             scores: float numpy array of size n
         """
@@ -80,12 +80,30 @@ class ObjectDetectionLabels(Labels):
 
     @staticmethod
     def from_geojson(geojson, crs_transformer, extent=None):
+        """Return ObjectDetectionLabels from GeoJSON.
+
+        If extent is provided, filter out the boxes that lie more than a
+        bit outside the extent.
+
+        Args:
+            geojson: dict in GeoJSON format
+            crs_transformer: used to convert map coords in geojson to pixel coords
+                in labels object
+            extent: Box in pixel coords
+        """
         labels = geojson_to_labels(geojson, crs_transformer)
         if extent is not None:
             labels = labels.get_overlapping(extent, min_ioa=0.8)
         return labels
 
     def to_geojson(self, crs_transformer, class_map):
+        """Convert to GeoJSON dict.
+
+        Args:
+            crs_transformer: (CRSTransformer) used to convert pixel coords
+                back to map
+            class_map: (ClassMap) used to infer class_names from class_ids
+        """
         boxes = self.get_boxes()
         class_ids = self.get_class_ids().tolist()
         scores = self.get_scores().tolist()
@@ -101,9 +119,11 @@ class ObjectDetectionLabels(Labels):
         return ObjectDetectionLabels(npboxes, class_ids, scores)
 
     def get_boxes(self):
+        """Return list of Boxes."""
         return [Box.from_npbox(npbox) for npbox in self.boxlist.get()]
 
     def get_coordinates(self):
+        """Return (ymins, xmins, ymaxs, xmaxs) tuple."""
         return self.boxlist.get_coordinates()
 
     def get_npboxes(self):
@@ -128,7 +148,8 @@ class ObjectDetectionLabels(Labels):
 
         This returns the boxes that overlap enough with window, clipped to
         the window and in relative coordinates that lie between 0 and 1.
-        A box overlaps enough if the IOA (box over window) exceeds ioa_thresh.
+        A box overlaps "enough" if the IOA (box over window) exceeds
+        ioa_thresh.
 
         Args:
             window: (Box)
@@ -165,27 +186,8 @@ class ObjectDetectionLabels(Labels):
     def prune_duplicates(self, score_thresh, merge_thresh):
         max_output_size = 1000000
 
-        # Create a copy of self.boxlist that has a 2D scores
-        # field with a column for each class which is required
-        # by the multi_class_non_max_suppression function. It's
-        # suprising that the scores field has to be in this form since
-        # I haven't seen other functions require that.
-        boxlist = BoxList(self.boxlist.get())
-        classes = self.boxlist.get_field('classes').astype(np.int32)
-        nb_boxes = classes.shape[0]
-        nb_classes = np.max(classes)
-        class_inds = classes - 1
-        scores_1d = self.boxlist.get_field('scores')
-        scores_2d = np.zeros((nb_boxes, nb_classes))
-        # Not sure how to vectorize this so just do for loop :(
-        for box_ind in range(nb_boxes):
-            scores_2d[box_ind, class_inds[box_ind]] = scores_1d[box_ind]
-        boxlist.add_field('scores', scores_2d)
+        pruned_boxlist = non_max_suppression(
+            self.boxlist, max_output_size=max_output_size,
+            iou_threshold=merge_thresh, score_threshold=score_thresh)
 
-        pruned_boxlist = multi_class_non_max_suppression(
-            boxlist, score_thresh, merge_thresh, max_output_size)
-        # Add one because multi_class_nms outputs labels that start at zero
-        # instead of one like in the rest of the system.
-        class_ids = pruned_boxlist.get_field('classes')
-        class_ids += 1
         return ObjectDetectionLabels.from_boxlist(pruned_boxlist)
